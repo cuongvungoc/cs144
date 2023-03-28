@@ -40,10 +40,12 @@ struct ctcp_state
                               this if this is the case for you */
 
   /* FIXME: Add other needed fields. */
-  uint32_t seqno;
-  uint32_t ackno;
-  uint16_t len;
-  uint32_t flag;
+  uint32_t seqno_send;
+  uint32_t ackno_send;
+  uint32_t seqno_recv;
+  uint32_t ackno_recv;
+  // uint16_t len;
+  // uint32_t flag;
 };
 
 /**
@@ -75,6 +77,10 @@ ctcp_state_t *ctcp_init(conn_t *conn, ctcp_config_t *cfg)
   /* Set fields. */
   state->conn = conn;
   /* FIXME: Do any other initialization here. */
+  state->ackno_send = 1;
+  state->seqno_send = 1;
+  state->ackno_recv = 1;
+  state->seqno_recv = 1;
 
   return state;
 }
@@ -100,45 +106,48 @@ void ctcp_read(ctcp_state_t *state)
 
   char buf[MAX_SEG_DATA_SIZE]; // Read data from STDIN
 
-  ctcp_segment_t *seg;
-  seg->seqno = state->seqno;
-  seg->ackno = state->ackno;
-  seg->window = 1 * MAX_SEG_DATA_SIZE;
-  seg->flags = 0;
+  ctcp_segment_t *seg = calloc(sizeof(ctcp_segment_t), 1);
+  seg->seqno = htonl(state->seqno_send);
+  seg->ackno = htonl(state->ackno_send);
+  seg->window = htons(1 * MAX_SEG_DATA_SIZE);
+  // seg->flags = 0;
   // seg->len = 0
   // seg->cksum = cksum();
   // int input = conn_input(state->conn, (char *)buf, MAX_SEG_DATA_SIZE);
   int input = conn_input(state->conn, buf, MAX_SEG_DATA_SIZE);
   seg->cksum = cksum(seg->data, strlen(seg->data));
   
-  if (input == -1)
+  if (input < 0)
   {
-    seg->flags = FIN;
-    seg->len = HEADER_LENGTH + strlen(seg->data);
+    seg->len = htons(HEADER_LENGTH);
+    seg->flags = htonl(FIN);
     // Send FIN
-    conn_send(state->conn, seg, seg->len);
-    seg->seqno += strlen(buf);
+    // seg->data = NULL;
+    conn_send(state->conn, seg, seg->len);    
     ctcp_destroy(state);
   }
 
-  seg->flags = 0;
+  seg->len = htons(HEADER_LENGTH + input);
+  seg->flags = htonl(0);
   memcpy(seg->data, buf, MAX_SEG_DATA_SIZE);
   conn_send(state->conn, seg, seg->len);
   // seg->seqno += strlen(buf);
-  state->next->seqno = seg->seqno + strlen(buf);
+  state->seqno_send = seg->seqno + input;
 }
 
 void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len)
 {
   /* FIXME */
   char buf[MAX_SEG_DATA_SIZE];
-  ctcp_segment_t *seg;
-  seg->seqno = state->seqno;
-  seg->ackno = state->ackno + strlen(segment->data) + 1;
+  ctcp_segment_t *seg = calloc(sizeof(ctcp_segment_t), 1);
+  seg->seqno = htonl(state->seqno_recv);  // sequence number
+  state->ackno_recv = state->ackno_recv + strlen(segment->data) + 1;
+  seg->ackno = htonl(seg->ackno);         // ackowledgement number
   memcpy(seg->data, buf, MAX_SEG_DATA_SIZE);
-  seg->flags = ACK;
-  seg->len = HEADER_LENGTH;
-  seg->window = 1 * MAX_SEG_DATA_SIZE;
+  // seg->data = htonl(seg->data);
+  seg->flags = htonl(ACK);
+  seg->len = htons(HEADER_LENGTH);
+  seg->window = htons(1 * MAX_SEG_DATA_SIZE);
   seg->cksum = cksum(seg->data, strlen(seg->data));
   
   conn_send(state->conn, seg, seg->len);
@@ -146,10 +155,11 @@ void ctcp_receive(ctcp_state_t *state, ctcp_segment_t *segment, size_t len)
   size_t buf_space = conn_bufspace(state->conn);
   if (buf_space > len)
   {
-    conn_output(state->conn, buf, strlen(buf));
-
-    // segment->flags = ACK;
-    // segment->ackno += strlen(buf);
+    int output = conn_output(state->conn, buf, strlen(buf));
+    if (output < 0)
+    {
+      ctcp_destroy(state);
+    }
   }
 }
 

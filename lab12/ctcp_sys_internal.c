@@ -686,6 +686,8 @@ void conn_free(conn_t *conn) {
 
   /* Adjust pointers. */
   if (conn->next)
+    // segment->flags = ACK;
+    // segment->ackno += strlen(buf);
     conn->next->prev = conn->prev;
   if (conn->prev)
     *conn->prev = conn->next;
