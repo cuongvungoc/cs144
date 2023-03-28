@@ -36,6 +36,8 @@
 // This is normally 60s, but I don't want to wait that long.
 #define MAX_SEG_LIFETIME_MS  4000
 
+#define HEADER_LENGTH 18
+
 /*To here*/
 
 
